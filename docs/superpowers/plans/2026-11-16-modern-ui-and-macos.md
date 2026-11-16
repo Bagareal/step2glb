@@ -14,7 +14,7 @@
 - Palette: bg `#0F1115`, surface `#171A21`, border `#262B36`, text `#E6E8EC`, muted `#8B93A1`, accent `#ECE9E2`, success `#7FD49B`, error `#FF7A7A`. No glow.
 - UI text stays English. Version `1.1.0`.
 - Drag-and-drop is optional at runtime: if tkinterdnd2 fails to load, the app still works.
-- macOS: arm64 only (`macos-14` runner), unsigned; zip with `ditto -c -k --keepParent`.
+- macOS: arm64 only (`macos-latest` runner, arm64), unsigned; zip with `ditto -c -k --keepParent`.
 
 ## Review Focus
 - macOS passes `-psn_*` launch args: they must not trigger the "use the CLI" message → `clean_argv` test.

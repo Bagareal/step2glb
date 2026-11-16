@@ -19,14 +19,14 @@ jobs:
           - os: windows-latest
             asset: STEP2GLB-windows-x64.zip
             cli: dist/STEP2GLB/step2glb-cli.exe
-          - os: macos-14  # Apple Silicon
+          - os: macos-latest  # Apple Silicon (arm64)
             asset: STEP2GLB-macos-arm64.zip
             cli: dist/STEP2GLB.app/Contents/MacOS/step2glb-cli
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip

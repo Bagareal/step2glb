@@ -69,7 +69,7 @@ per Mac nella stessa release, con istruzioni nel README per quando macOS la bloc
 - Sull'icona: Windows come oggi (argomenti dell'exe). Mac: gestore Tk `::tk::mac::OpenDocument`.
 
 ### Mac
-- Job GitHub Actions su `macos-14` (Apple Silicon). PyInstaller crea `STEP2GLB.app`
+- Job GitHub Actions su `macos-latest` (Apple Silicon). PyInstaller crea `STEP2GLB.app`
   (`BUNDLE`); dentro `Contents/MacOS/` ci sono sia l'app sia `step2glb-cli`.
 - Smoke test: conversione del campione con `step2glb-cli`.
 - Lo zip `STEP2GLB-macos-arm64.zip` si crea con `ditto -c -k --keepParent`.
