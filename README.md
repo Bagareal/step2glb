@@ -44,11 +44,12 @@ a good shape. If a file still fails or is too big, convert it with **Draft** fir
 
 ## Command line
 
-Any option starting with `-` switches to command-line mode. Run it from a terminal:
+`STEP2GLB.exe` is the window only (it opens no console). For scripts and batch jobs use
+`step2glb-cli.exe`, which is in the same folder. Run it from a terminal:
 
 ```
-STEP2GLB.exe model.step
-STEP2GLB.exe D:\cad\models -r -q draft -o D:\cad\glb --skip-existing
+step2glb-cli.exe model.step
+step2glb-cli.exe D:\cad\models -r -q draft -o D:\cad\glb --skip-existing
 ```
 
 | Option | Meaning |
@@ -80,7 +81,8 @@ The exit code is `0` when every file converted, `1` if at least one failed, `2` 
 ## Build from source
 
 The Windows build is produced by GitHub Actions (see `.github/workflows/build.yml`): every push
-builds the app, runs the tests, converts a generated sample with the built exe, and uploads a zip.
+builds the app, runs the tests, converts a generated sample with the built `step2glb-cli.exe`,
+checks that `STEP2GLB.exe` is a windowed app, and uploads a zip.
 Pushing a tag such as `v1.0.0` also publishes it as a release.
 
 To run from source (Python 3.12):
@@ -91,7 +93,7 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 python -m pytest
 python -m step2glb                 # opens the window
-python -m step2glb model.step -q draft
+python -m step2glb model.step -q draft   # options switch to command-line mode
 python -m PyInstaller --noconfirm --clean STEP2GLB.spec   # portable build in dist\STEP2GLB
 ```
 

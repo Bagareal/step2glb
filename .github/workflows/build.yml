@@ -35,9 +35,11 @@ jobs:
         shell: bash
         run: |
           python tests/make_sample.py sample.step
-          dist/STEP2GLB/STEP2GLB.exe sample.step -q draft -o smoke
+          dist/STEP2GLB/step2glb-cli.exe sample.step -q draft -o smoke
           test -s smoke/sample.glb
-          dist/STEP2GLB/STEP2GLB.exe --version
+          dist/STEP2GLB/step2glb-cli.exe --version
+          # STEP2GLB.exe must be a windowed app (PE subsystem 2 = GUI), so no console flashes
+          python -c "import struct,sys; d=open('dist/STEP2GLB/STEP2GLB.exe','rb').read(4096); o=struct.unpack_from('<I',d,0x3C)[0]; s=struct.unpack_from('<H',d,o+0x5C)[0]; print('subsystem',s); sys.exit(s!=2)"
 
       - name: Zip
         shell: bash
