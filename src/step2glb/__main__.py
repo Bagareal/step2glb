@@ -3,8 +3,13 @@
 import sys
 
 
+def clean_argv(argv):
+    """Drop launcher noise: macOS Finder used to pass '-psn_0_12345' to apps."""
+    return [a for a in argv if not a.startswith("-psn_")]
+
+
 def main(argv=None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
+    argv = clean_argv(sys.argv[1:] if argv is None else argv)
     if any(a.startswith("-") for a in argv):
         from .cli import run
         return run(argv)

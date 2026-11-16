@@ -5,7 +5,9 @@ import sys
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    argv = sys.argv[1:]
+    from step2glb.__main__ import clean_argv
+
+    argv = clean_argv(sys.argv[1:])
     if any(a.startswith("-") for a in argv):
         # A windowed exe has no console to print to: point to the command-line exe instead.
         import tkinter as tk

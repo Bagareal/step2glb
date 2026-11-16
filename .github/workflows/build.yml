@@ -11,8 +11,18 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: STEP2GLB-windows-x64.zip
+            cli: dist/STEP2GLB/step2glb-cli.exe
+          - os: macos-14  # Apple Silicon
+            asset: STEP2GLB-macos-arm64.zip
+            cli: dist/STEP2GLB.app/Contents/MacOS/step2glb-cli
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,32 +41,62 @@ jobs:
       - name: Build portable app
         run: python -m PyInstaller --noconfirm --clean STEP2GLB.spec
 
-      - name: Smoke test the built exe
+      - name: Smoke test the command line exe
         shell: bash
         run: |
           python tests/make_sample.py sample.step
-          dist/STEP2GLB/step2glb-cli.exe sample.step -q draft -o smoke
+          "${{ matrix.cli }}" sample.step -q draft -o smoke
           test -s smoke/sample.glb
-          dist/STEP2GLB/step2glb-cli.exe --version
-          # STEP2GLB.exe must be a windowed app (PE subsystem 2 = GUI), so no console flashes
-          python -c "import struct,sys; d=open('dist/STEP2GLB/STEP2GLB.exe','rb').read(4096); o=struct.unpack_from('<I',d,0x3C)[0]; s=struct.unpack_from('<H',d,o+0x5C)[0]; print('subsystem',s); sys.exit(s!=2)"
+          "${{ matrix.cli }}" --version
 
-      - name: Zip
+      - name: Check STEP2GLB.exe is a windowed app
+        if: runner.os == 'Windows'
+        shell: bash
+        # PE subsystem 2 = GUI, so no console window flashes on start
+        run: python -c "import struct,sys; d=open('dist/STEP2GLB/STEP2GLB.exe','rb').read(4096); o=struct.unpack_from('<I',d,0x3C)[0]; s=struct.unpack_from('<H',d,o+0x5C)[0]; print('subsystem',s); sys.exit(s!=2)"
+
+      - name: Check the .app opens the window, not the CLI
+        if: runner.os == 'macOS'
+        run: |
+          exe=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" dist/STEP2GLB.app/Contents/Info.plist)
+          echo "CFBundleExecutable=$exe"
+          test "$exe" = "STEP2GLB"
+          test -x dist/STEP2GLB.app/Contents/MacOS/STEP2GLB
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir release
           cp README.md LICENSE dist/STEP2GLB/
-          cd dist && 7z a -tzip -mx=5 ../release/STEP2GLB-windows-x64.zip STEP2GLB
+          cd dist && 7z a -tzip -mx=5 "../release/${{ matrix.asset }}" STEP2GLB
+
+      - name: Zip (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir release
+          ditto -c -k --keepParent dist/STEP2GLB.app "release/${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: STEP2GLB-windows-x64
-          path: release/STEP2GLB-windows-x64.zip
+          name: ${{ matrix.asset }}
+          path: release/${{ matrix.asset }}
           if-no-files-found: error
 
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/STEP2GLB-windows-x64.zip --generate-notes --title "$GITHUB_REF_NAME"
+        run: |
+          ls -l release
+          gh release create "$GITHUB_REF_NAME" release/*.zip --repo "$GITHUB_REPOSITORY" \
+            --generate-notes --title "$GITHUB_REF_NAME"

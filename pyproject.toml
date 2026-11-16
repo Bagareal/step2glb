@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "step2glb"
-version = "1.0.1"
+version = "1.1.0"
 description = "Portable STEP to GLB converter (OpenCASCADE)"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
-dependencies = ["cadquery-ocp>=7.8"]
+dependencies = ["cadquery-ocp>=7.8", "tkinterdnd2>=0.4"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
