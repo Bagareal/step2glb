@@ -98,5 +98,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l release
-          gh release create "$GITHUB_REF_NAME" release/*.zip --repo "$GITHUB_REPOSITORY" \
-            --generate-notes --title "$GITHUB_REF_NAME"
+          # The release may already exist (created from the GitHub web page with a new tag):
+          # then only attach the zips to it.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/*.zip --repo "$GITHUB_REPOSITORY" \
+              --generate-notes --title "$GITHUB_REF_NAME"
+          fi
