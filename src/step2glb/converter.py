@@ -18,7 +18,7 @@ from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
 from OCP.collections import Sequence_TDF_Label
 from OCP.TDocStd import TDocStd_Document
 from OCP.XCAFApp import XCAFApp_Application
-from OCP.XCAFDoc import XCAFDoc_DocumentTool
+from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_ShapeTool
 
 STEP_EXTENSIONS = (".step", ".stp")
 
@@ -32,6 +32,15 @@ QUALITY_PRESETS = {
 }
 
 Logger = Callable[[str], None]
+# progress(phase, fraction): phase is one of PHASES; fraction is 0..1 when the phase
+# can report how far it is, None when it cannot (OpenCASCADE gives no progress to
+# Python while it reads and transfers the file).
+Progress = Callable[[str, Optional[float]], None]
+PHASES = ("read", "transfer", "mesh", "write")
+
+
+def _no_progress(phase: str, fraction: Optional[float]) -> None:
+    pass
 
 
 class ConversionError(Exception):
@@ -58,7 +67,7 @@ def default_output_path(src: str, out_dir: Optional[str] = None) -> str:
     return os.path.join(out_dir or os.path.dirname(os.path.abspath(src)), base)
 
 
-def _read_step(path: str, log: Logger) -> TDocStd_Document:
+def _read_step(path: str, log: Logger, progress: Progress) -> TDocStd_Document:
     app = XCAFApp_Application.GetApplication_s()
     doc = TDocStd_Document(TCollection_ExtendedString("BinXCAF"))
     app.InitDocument(doc)
@@ -69,11 +78,17 @@ def _read_step(path: str, log: Logger) -> TDocStd_Document:
     reader.SetLayerMode(True)
     reader.SetMatMode(True)
 
+    progress("read", None)
+    t = time.time()
     status = reader.ReadFile(path)
     if status != IFSelect_RetDone:
         raise ConversionError("OpenCASCADE could not read this file (is it a valid STEP file?)")
+    log(f"Parsed the file in {time.time() - t:.1f}s")
+    progress("transfer", None)
+    t = time.time()
     if not reader.Transfer(doc, Message_ProgressRange()):
         raise ConversionError("The STEP file was read but its content could not be transferred")
+    log(f"Built the 3D shapes in {time.time() - t:.1f}s")
     return doc
 
 
@@ -84,7 +99,16 @@ def _free_shapes(doc: TDocStd_Document):
     return tool, [labels.Value(i) for i in range(1, labels.Length() + 1)]
 
 
-def _mesh(doc: TDocStd_Document, opts: Options, log: Logger) -> None:
+def _parts(tool) -> list:
+    """Every distinct part (non-assembly shape) of the document, each listed once
+    even when it is used many times."""
+    labels = Sequence_TDF_Label()
+    tool.GetShapes(labels)
+    return [tool.GetShape_s(labels.Value(i)) for i in range(1, labels.Length() + 1)
+            if not XCAFDoc_ShapeTool.IsAssembly_s(labels.Value(i))]
+
+
+def _mesh(doc: TDocStd_Document, opts: Options, log: Logger, progress: Progress) -> None:
     tool, roots = _free_shapes(doc)
     if not roots:
         raise ConversionError("The file contains no 3D shapes")
@@ -96,15 +120,29 @@ def _mesh(doc: TDocStd_Document, opts: Options, log: Logger) -> None:
         defl, ang = QUALITY_PRESETS[opts.quality]
         relative = True
         desc = f"quality '{opts.quality}'"
-    log(f"Meshing ({desc}, using all CPU cores)...")
-    for label in roots:
-        shape = tool.GetShape_s(label)
+    parts = _parts(tool)
+    log(f"Meshing {len(parts)} parts ({desc}, using all CPU cores)...")
+    # One part at a time, so the progress is real; each call still meshes the
+    # faces of the part in parallel, and it is as fast as meshing everything at once.
+    progress("mesh", 0.0)
+    shown = 0
+    for i, shape in enumerate(parts, 1):
         BRepMesh_IncrementalMesh(shape, defl, relative, ang, True)  # last arg: parallel
+        pct = i * 100 // len(parts)
+        if pct != shown:
+            shown = pct
+            progress("mesh", i / len(parts))
+    # Safety net for shapes that are not stored as parts: faces meshed above are skipped.
+    for label in roots:
+        BRepMesh_IncrementalMesh(tool.GetShape_s(label), defl, relative, ang, True)
+    progress("mesh", 1.0)
 
 
-def convert(src: str, dst: str, opts: Optional[Options] = None, log: Logger = print) -> dict:
+def convert(src: str, dst: str, opts: Optional[Options] = None, log: Logger = print,
+            progress: Optional[Progress] = None) -> dict:
     """Convert one STEP file to a binary glTF (.glb). Returns basic stats."""
     opts = opts or Options()
+    progress = progress or _no_progress
     if opts.quality not in QUALITY_PRESETS:
         raise ConversionError(f"Unknown quality '{opts.quality}'")
     if not os.path.isfile(src):
@@ -113,15 +151,16 @@ def convert(src: str, dst: str, opts: Optional[Options] = None, log: Logger = pr
     t0 = time.time()
     size_mb = os.path.getsize(src) / 1e6
     log(f"Reading {os.path.basename(src)} ({size_mb:.1f} MB)...")
-    doc = _read_step(src, log)
+    doc = _read_step(src, log, progress)
     t_read = time.time()
     log(f"Read in {t_read - t0:.1f}s")
 
-    _mesh(doc, opts, log)
+    _mesh(doc, opts, log, progress)
     t_mesh = time.time()
     log(f"Meshed in {t_mesh - t_read:.1f}s")
 
     log("Writing GLB...")
+    progress("write", None)
     converter = RWMesh_CoordinateSystemConverter()
     # STEP documents read by OpenCASCADE are in millimetres.
     converter.SetInputLengthUnit(0.001)
@@ -137,6 +176,9 @@ def convert(src: str, dst: str, opts: Optional[Options] = None, log: Logger = pr
     writer = RWGltf_CafWriter(TCollection_AsciiString(tmp), True)
     writer.SetCoordinateSystemConverter(converter)
     writer.SetParallel(True)
+    # One glTF primitive per part (per colour) instead of one per B-Rep face: otherwise
+    # viewers get one object per face, which breaks exploded views and is very slow.
+    writer.SetMergeFaces(True)
     # Prefer the part (product) name; fall back to the instance name.
     writer.SetNodeNameFormat(RWMesh_NameFormat.RWMesh_NameFormat_ProductOrInstance)
     writer.SetMeshNameFormat(RWMesh_NameFormat.RWMesh_NameFormat_ProductOrInstance)
@@ -146,6 +188,7 @@ def convert(src: str, dst: str, opts: Optional[Options] = None, log: Logger = pr
             os.remove(tmp)
         raise ConversionError("Writing the GLB failed")
     os.replace(tmp, dst)
+    progress("write", 1.0)
 
     out_mb = os.path.getsize(dst) / 1e6
     total = time.time() - t0

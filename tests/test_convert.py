@@ -44,6 +44,26 @@ def test_convert_keeps_names_colours_hierarchy_and_units(sample, tmp_path):
     assert max(ys) == pytest.approx(0.05)
 
 
+def test_one_primitive_per_part_not_per_face(sample, tmp_path):
+    # The box has 6 faces and the cylinder 3: viewers must get one object per part,
+    # otherwise exploded views pull the faces apart.
+    out = str(tmp_path / "merged.glb")
+    convert(sample, out, log=lambda m: None)
+    g = read_gltf_json(out)
+    assert [len(m["primitives"]) for m in g["meshes"]] == [1, 1]
+
+
+def test_progress_reports_phases_in_order(sample, tmp_path):
+    seen = []
+    convert(sample, str(tmp_path / "p.glb"), log=lambda m: None,
+            progress=lambda phase, frac: seen.append((phase, frac)))
+    phases = [p for p, _ in seen]
+    assert [p for i, p in enumerate(phases) if i == 0 or phases[i - 1] != p] == ["read", "transfer", "mesh", "write"]
+    mesh = [f for p, f in seen if p == "mesh"]
+    assert mesh[0] == 0.0 and mesh[-1] == 1.0 and mesh == sorted(mesh)
+    assert seen[-1] == ("write", 1.0)
+
+
 def test_millimetres_and_z_up(sample, tmp_path):
     out = str(tmp_path / "mm.glb")
     convert(sample, out, Options(y_up=False, metres=False), log=lambda m: None)

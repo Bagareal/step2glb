@@ -29,9 +29,25 @@ Intel Macs are not supported.
 
 ### Using the window
 
-Every file in the list shows its own status: *Waiting*, *Converting…*, *✓ Done* or *Error*.
-Select a file that failed to see why. Large files can take a while; they are converted one after
-the other and the bar shows how many are done. **Details** opens the full conversion log.
+Every file in the list shows its own status: *Waiting*, the step it is at, *✓ Done*, *Error* or
+*Cancelled*. Select a file that failed to see why. Files are converted one after the other; the line
+above the bar shows which one, the current step and the time spent on it. **Details** opens the full
+conversion log.
+
+A conversion goes through four steps:
+
+| Step | Bar |
+| --- | --- |
+| Reading file… | Moving, without a percentage: OpenCASCADE gives no progress for this step |
+| Building shapes… | Moving, without a percentage (same reason) |
+| Meshing 0–100% | Real percentage: parts are meshed one by one |
+| Writing GLB… | Moving, then full |
+
+On large files the first two steps take most of the time. The window stays usable during the
+whole conversion: each file is converted in a separate background process, which also frees all
+its memory when the file is done. **Cancel** stops the current file at once (no half-written GLB
+is left behind). The converter runs at low priority: it uses every CPU core, but other programs go
+first, so the computer stays responsive.
 
 ## What is kept in the GLB
 
@@ -41,6 +57,7 @@ the other and the bar shows how many are done. **Details** opens the full conver
 | Part names | Product name first, instance name as a fallback |
 | Colours | As defined in the STEP file |
 | Repeated parts | A part used many times is stored once and instanced, which keeps files small |
+| One mesh per part | The faces of a part are merged (one piece per colour), so viewers show and explode whole parts, not separate faces, and stay fast |
 | Units and axes | Metres and Y-up, as the glTF standard requires (STEP files are usually millimetres, Z-up) |
 
 Not included: textures, animations, product manufacturing information (PMI / annotations) and

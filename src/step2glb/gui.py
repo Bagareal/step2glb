@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import os
-import queue
 import sys
-import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -24,7 +24,29 @@ STATUS_TEXT = {
     "running": "Converting…",
     "done": "✓ Done",
     "error": "Error",
+    "cancelled": "Cancelled",
 }
+
+PHASE_TEXT = {
+    "read": "Reading file…",
+    "transfer": "Building shapes…",
+    "mesh": "Meshing…",
+    "write": "Writing GLB…",
+}
+
+
+def phase_text(phase, fraction) -> str:
+    """Status of the file being converted. Only meshing can tell how far it is."""
+    if phase == "mesh" and fraction is not None:
+        return f"Meshing {int(fraction * 100)}%"
+    return PHASE_TEXT.get(phase, STATUS_TEXT["running"])
+
+
+def format_elapsed(seconds: float) -> str:
+    s = int(seconds)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
 def format_size(n: int) -> str:
@@ -92,7 +114,11 @@ class App(tk.Tk):
         self.files: list[str] = []
         self.row_state: dict[str, str] = {}
         self.errors: dict[str, str] = {}
-        self.msgs: "queue.Queue[tuple]" = queue.Queue()
+        # Each file is converted in its own process (see worker.py), so the window never freezes.
+        self.mp = multiprocessing.get_context("spawn")
+        self.job = None  # the conversion in progress
+        self.pending: list[str] = []
+        self.old_procs = []  # finished converters still freeing their memory
         self.running = False
         self.out_dir = tk.StringVar(value="")
         self.save_mode = tk.StringVar(value="same")
@@ -154,6 +180,7 @@ class App(tk.Tk):
         self.tree.tag_configure("running", foreground=P["accent"])
         self.tree.tag_configure("done", foreground=P["success"])
         self.tree.tag_configure("error", foreground=P["error"])
+        self.tree.tag_configure("cancelled", foreground=P["muted"])
         sb = ttk.Scrollbar(card, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -363,10 +390,13 @@ class App(tk.Tk):
         self.running = busy
         state = "disabled" if busy else "normal"
         for w in (self.btn_files, self.btn_folder, self.btn_remove, self.btn_clear,
-                  self.btn_go, self.rb_same, self.rb_dir):
+                  self.rb_same, self.rb_dir):
             w.configure(state=state)
         self.cb_quality.configure(state="disabled" if busy else "readonly")
-        self.btn_go.configure(text="Converting…" if busy else "Convert to GLB")
+        if busy:
+            self.btn_go.configure(text="Cancel", style="TButton", command=self._cancel)
+        else:
+            self.btn_go.configure(text="Convert to GLB", style="Accent.TButton", command=self._start)
         self._toggle_out()
 
     def _start(self):
@@ -383,70 +413,155 @@ class App(tk.Tk):
             if not out:
                 messagebox.showinfo("STEP to GLB", "Choose an output folder, or save next to the STEP files.")
                 return
-        opts = Options(quality=QUALITY_LABELS[self.quality.get()])
-        files = list(self.files)
-        for f in files:
+        self.opts = Options(quality=QUALITY_LABELS[self.quality.get()])
+        self.out = out
+        self.pending = list(self.files)
+        self.total, self.index, self.ok, self.cancelled = len(self.pending), 0, 0, False
+        for f in self.pending:
             self._set_row(f, "queued")
-        self.bar.configure(value=0)
-        self.status.configure(text=f"0 of {len(files)}", foreground=P["muted"])
+        self.bar.configure(mode="determinate", value=0)
         self._set_busy(True)
-        threading.Thread(target=self._worker, args=(files, out, opts), daemon=True).start()
+        self._next()
 
-    def _worker(self, files, out, opts):
-        from .converter import ConversionError, convert, default_output_path
+    def _next(self):
+        """Start the converter process for the next file, or finish."""
+        from .converter import default_output_path
+        from .worker import run_job
 
-        ok = 0
-        total = len(files)
-        for i, src in enumerate(files, 1):
-            self.msgs.put(("row", (src, "running", "")))
-            self.msgs.put(("status", f"Converting {i} of {total}  ·  {os.path.basename(src)}"))
-            self.msgs.put(("log", f"\n[{i}/{total}] {src}"))
-            try:
-                convert(src, default_output_path(src, out), opts,
-                        log=lambda m: self.msgs.put(("log", "  " + m)))
-                ok += 1
-                self.msgs.put(("row", (src, "done", "")))
-            except ConversionError as e:
-                self.msgs.put(("log", f"  ERROR: {e}"))
-                self.msgs.put(("row", (src, "error", str(e))))
-            except Exception as e:
-                self.msgs.put(("log", f"  ERROR: {type(e).__name__}: {e}"))
-                self.msgs.put(("row", (src, "error", f"{type(e).__name__}: {e}")))
-            self.msgs.put(("progress", i * 100 / total))
-        self.msgs.put(("done", (ok, total)))
+        if self.cancelled or not self.pending:
+            self._finish()
+            return
+        src = self.pending.pop(0)
+        self.index += 1
+        dst = default_output_path(src, self.out)
+        recv, send = self.mp.Pipe(duplex=False)
+        proc = self.mp.Process(target=run_job, args=(src, dst, self.opts, send), daemon=True)
+        self.job = {"src": src, "dst": dst, "conn": recv, "proc": proc, "t0": time.monotonic(),
+                    "phase": "read", "frac": None, "result": None, "eof": False}
+        self._set_row(src, "running")
+        self._log(f"\n[{self.index}/{self.total}] {src}")
+        self._show_phase()
+        proc.start()
+        send.close()  # only the converter writes: the pipe then reports when it ends
+
+    def _show_phase(self):
+        j = self.job
+        text = phase_text(j["phase"], j["frac"])
+        if self.tree.exists(j["src"]):
+            self.tree.set(j["src"], "status", text)
+        elapsed = format_elapsed(time.monotonic() - j["t0"])
+        self.status.configure(
+            text=f"{self.index} of {self.total}  ·  {os.path.basename(j['src'])}  ·  {text}  ·  {elapsed}",
+            foreground=P["muted"])
+        # Reading and building the shapes give no progress: the bar only shows that work goes on.
+        if j["frac"] is None:
+            if str(self.bar.cget("mode")) != "indeterminate":
+                self.bar.configure(mode="indeterminate", value=0)
+                self.bar.start(15)
+        else:
+            if str(self.bar.cget("mode")) != "determinate":
+                self.bar.stop()
+                self.bar.configure(mode="determinate")
+            self.bar.configure(value=j["frac"] * 100)
+
+    def _drain(self, j):
+        try:
+            for _ in range(1000):
+                if not j["conn"].poll():
+                    break
+                kind, val = j["conn"].recv()
+                if kind == "log":
+                    self._log("  " + val)
+                elif kind == "phase":
+                    j["phase"], j["frac"] = val
+                else:
+                    j["result"] = (kind, val)
+        except (EOFError, OSError):
+            j["eof"] = True  # the converter process has ended
 
     def _poll(self):
-        try:
-            while True:
-                kind, val = self.msgs.get_nowait()
-                if kind == "log":
-                    self.log.configure(state="normal")
-                    self.log.insert("end", val + "\n")
-                    self.log.see("end")
-                    self.log.configure(state="disabled")
-                elif kind == "row":
-                    self._set_row(*val)
-                elif kind == "progress":
-                    self.bar.configure(value=val)
-                elif kind == "status":
-                    self.status.configure(text=val)
-                elif kind == "done":
-                    ok, total = val
-                    self._set_busy(False)
-                    if ok == total:
-                        self.status.configure(text=f"Done  ·  {ok} of {total} converted", foreground=P["success"])
-                    else:
-                        self.status.configure(text=f"{ok} of {total} converted  ·  {total - ok} failed "
-                                                   "(select a file to see why)", foreground=P["error"])
-        except queue.Empty:
-            pass
+        j = self.job
+        if j:
+            self._drain(j)
+            if j["result"] is None and (j["eof"] or not j["proc"].is_alive()):
+                self._drain(j)  # last messages sent just before the process ended
+                if j["result"] is None:
+                    j["result"] = ("error", f"The converter stopped unexpectedly (exit code {j['proc'].exitcode}). "
+                                            "The file may need more memory than this computer has: close other "
+                                            "programs or try the Draft quality.")
+            if j["result"] is not None:
+                self._file_done(j)
+            else:
+                self._show_phase()
+        self.old_procs = [p for p in self.old_procs if p.is_alive()]
         self.after(100, self._poll)
 
-    def _on_close(self):
-        if self.running and not messagebox.askyesno(
-                "STEP to GLB", "A conversion is still running. Quit anyway?"):
+    def _file_done(self, j):
+        kind, val = j["result"]
+        if kind == "ok":
+            self.ok += 1
+            self._set_row(j["src"], "done")
+        else:
+            self._log(f"  ERROR: {val}")
+            self._set_row(j["src"], "error", val)
+            self._remove_part(j)
+        j["conn"].close()
+        self.old_procs.append(j["proc"])  # it ends by itself once its memory is freed
+        self.job = None
+        self._next()
+
+    def _remove_part(self, j):
+        try:
+            os.remove(j["dst"] + ".part")
+        except OSError:
+            pass
+
+    def _stop_job(self, j):
+        j["proc"].terminate()
+        j["proc"].join(timeout=3)
+        if j["proc"].is_alive():
+            j["proc"].kill()
+            j["proc"].join(timeout=3)
+        j["conn"].close()
+        self._remove_part(j)
+
+    def _cancel(self):
+        j = self.job
+        if not j:
             return
-        os._exit(0) if self.running else self.destroy()
+        self.cancelled = True
+        self._stop_job(j)
+        self._log("  Cancelled")
+        self._set_row(j["src"], "cancelled")
+        self.job = None
+        self._next()
+
+    def _finish(self):
+        self._set_busy(False)
+        self.bar.stop()
+        self.bar.configure(mode="determinate", value=100 if self.ok else 0)
+        ok, total = self.ok, self.total
+        if self.cancelled:
+            self.status.configure(text=f"Cancelled  ·  {ok} of {total} converted", foreground=P["muted"])
+        elif ok == total:
+            self.status.configure(text=f"Done  ·  {ok} of {total} converted", foreground=P["success"])
+        else:
+            self.status.configure(text=f"{ok} of {total} converted  ·  {total - ok} failed "
+                                       "(select a file to see why)", foreground=P["error"])
+
+    def _log(self, text):
+        self.log.configure(state="normal")
+        self.log.insert("end", text + "\n")
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def _on_close(self):
+        if self.job:
+            if not messagebox.askyesno("STEP to GLB", "A conversion is still running. Stop it and quit?"):
+                return
+            self._stop_job(self.job)
+            self.job = None
+        self.destroy()
 
 
 def run(initial_paths=None):
