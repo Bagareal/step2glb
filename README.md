@@ -84,6 +84,7 @@ first, so the computer stays responsive.
 | Colours | As defined in the STEP file |
 | Repeated parts | A part used many times is stored once and instanced, which keeps files small |
 | One mesh per part | The faces of a part are merged (one piece per colour), so viewers show and explode whole parts, not separate faces, and stay fast |
+| Multi-body parts | Some CAD programs export a whole assembly as one part holding many solids. Each solid then becomes its own part (named Part 001, Part 002… when the file gives no name), so the parts list and the exploded view work. Only solids are separated: surfaces are never split into faces, and construction lines are left out. Untick **One part per solid** (or use `--keep-bodies`) to keep them together |
 | Units and axes | Metres and Y-up, as the glTF standard requires (STEP files are usually millimetres, Z-up) |
 
 Not included: textures, animations, product manufacturing information (PMI / annotations) and
@@ -120,6 +121,7 @@ step2glb-cli.exe D:\cad\models -r -q draft -o D:\cad\glb --skip-existing
 | `--skip-existing` | Skip files whose GLB already exists |
 | `--z-up` | Keep the STEP Z-up axis instead of converting to glTF Y-up |
 | `--mm` | Keep millimetres instead of converting to metres |
+| `--keep-bodies` | Keep the solids of a multi-body part together (default: one part per solid) |
 | `--version` | Print the version |
 
 The exit code is `0` when every file converted, `1` if at least one failed, `2` if no STEP file was found.

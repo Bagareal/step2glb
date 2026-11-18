@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-existing", action="store_true", help="skip files whose GLB already exists")
     p.add_argument("--z-up", action="store_true", help="keep the STEP Z-up axis (glTF is normally Y-up)")
     p.add_argument("--mm", action="store_true", help="keep millimetres (glTF is normally metres)")
+    p.add_argument("--keep-bodies", action="store_true",
+                   help="keep the solids of a multi-body part together (default: one part per solid)")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p
 
@@ -45,7 +47,7 @@ def run(argv) -> int:
         return 2
 
     opts = Options(quality=args.quality, deflection=args.deflection,
-                   y_up=not args.z_up, metres=not args.mm)
+                   y_up=not args.z_up, metres=not args.mm, split_bodies=not args.keep_bodies)
     failed = 0
     t0 = time.time()
     for i, src in enumerate(files, 1):

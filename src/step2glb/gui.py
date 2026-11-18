@@ -125,6 +125,7 @@ class App(tk.Tk):
         self.out_dir = tk.StringVar(value="")
         self.save_mode = tk.StringVar(value="same")
         self.quality = tk.StringVar(value="Normal (recommended)")
+        self.split_bodies = tk.BooleanVar(value=True)
         self.details_open = False
 
         self._build()
@@ -208,17 +209,21 @@ class App(tk.Tk):
         self.cb_quality = ttk.Combobox(opt, textvariable=self.quality, state="readonly",
                                        values=list(QUALITY_LABELS), width=26)
         self.cb_quality.grid(row=0, column=1, columnspan=2, sticky="w", pady=4)
-        ttk.Label(opt, text="Save to", style="Section.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 16), pady=4)
+        ttk.Label(opt, text="Parts", style="Section.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 16), pady=4)
+        self.ck_split = ttk.Checkbutton(opt, text="One part per solid in multi-body parts",
+                                        variable=self.split_bodies)
+        self.ck_split.grid(row=1, column=1, columnspan=3, sticky="w", pady=4)
+        ttk.Label(opt, text="Save to", style="Section.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 16), pady=4)
         self.rb_same = ttk.Radiobutton(opt, text="Next to each STEP file", value="same",
                                        variable=self.save_mode, command=self._toggle_out)
-        self.rb_same.grid(row=1, column=1, columnspan=3, sticky="w", pady=4)
+        self.rb_same.grid(row=2, column=1, columnspan=3, sticky="w", pady=4)
         self.rb_dir = ttk.Radiobutton(opt, text="Folder", value="dir",
                                       variable=self.save_mode, command=self._toggle_out)
-        self.rb_dir.grid(row=2, column=1, sticky="w", pady=4)
+        self.rb_dir.grid(row=3, column=1, sticky="w", pady=4)
         self.ent_out = ttk.Entry(opt, textvariable=self.out_dir, state="disabled")
-        self.ent_out.grid(row=2, column=2, sticky="we", padx=(10, 8), pady=4)
+        self.ent_out.grid(row=3, column=2, sticky="we", padx=(10, 8), pady=4)
         self.btn_out = ttk.Button(opt, text="Choose…", command=self._pick_out, state="disabled")
-        self.btn_out.grid(row=2, column=3, pady=4)
+        self.btn_out.grid(row=3, column=3, pady=4)
 
         # Progress + convert
         run = ttk.Frame(root)
@@ -392,7 +397,7 @@ class App(tk.Tk):
         self.running = busy
         state = "disabled" if busy else "normal"
         for w in (self.btn_files, self.btn_folder, self.btn_remove, self.btn_clear,
-                  self.rb_same, self.rb_dir):
+                  self.rb_same, self.rb_dir, self.ck_split):
             w.configure(state=state)
         self.cb_quality.configure(state="disabled" if busy else "readonly")
         if busy:
@@ -415,7 +420,7 @@ class App(tk.Tk):
             if not out:
                 messagebox.showinfo("STEP to GLB", "Choose an output folder, or save next to the STEP files.")
                 return
-        self.opts = Options(quality=QUALITY_LABELS[self.quality.get()])
+        self.opts = Options(quality=QUALITY_LABELS[self.quality.get()], split_bodies=self.split_bodies.get())
         self.out = out
         self.pending = list(self.files)
         self.total, self.index, self.ok, self.cancelled = len(self.pending), 0, 0, False
