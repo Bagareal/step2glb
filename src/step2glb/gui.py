@@ -103,7 +103,9 @@ class DropZone(tk.Canvas):
 
 class App(tk.Tk):
     def __init__(self, initial_paths=None):
-        super().__init__()
+        # className is the window class on Linux (WM_CLASS): it matches StartupWMClass in
+        # the launcher entry and lets window rules (e.g. Hyprland) target the app.
+        super().__init__(className="STEP2GLB")
         self.withdraw()
         self.title("STEP to GLB")
         self.geometry("780x720")

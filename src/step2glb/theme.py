@@ -29,7 +29,7 @@ PALETTE = {
 def _fonts(root: tk.Misc) -> dict:
     base = tkfont.nametofont("TkDefaultFont", root)
     family = base.actual("family")
-    size = 10 if sys.platform == "win32" else 13
+    size = 13 if sys.platform == "darwin" else 10  # Tk points: macOS draws them smaller
     for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
         tkfont.nametofont(name, root).configure(family=family, size=size)
     return {
@@ -145,7 +145,7 @@ def apply_theme(root: tk.Tk) -> dict:
     root.option_add("*TCombobox*Listbox.font", f["base"])
 
     # File list
-    rowheight = int(f["size"] * (2.9 if sys.platform == "win32" else 2.1))
+    rowheight = int(f["size"] * (2.1 if sys.platform == "darwin" else 2.9))
     s.configure("Treeview", background=p["surface"], fieldbackground=p["surface"],
                 foreground=p["text"], bordercolor=p["surface"], lightcolor=p["surface"],
                 darkcolor=p["surface"], rowheight=rowheight, borderwidth=0)

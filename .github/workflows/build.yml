@@ -22,6 +22,9 @@ jobs:
           - os: macos-latest  # Apple Silicon (arm64)
             asset: STEP2GLB-macos-arm64.zip
             cli: dist/STEP2GLB.app/Contents/MacOS/step2glb-cli
+          - os: ubuntu-22.04  # oldest glibc still supported, so it runs on newer distros (Arch, Omarchy...)
+            asset: STEP2GLB-linux-x64.tar.gz
+            cli: dist/STEP2GLB/step2glb-cli
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -31,6 +34,10 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-dev.txt
+
+      - name: Install Tk and a virtual display (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libtk8.6 xvfb
 
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
@@ -63,6 +70,15 @@ jobs:
           test "$exe" = "STEP2GLB"
           test -x dist/STEP2GLB.app/Contents/MacOS/STEP2GLB
 
+      - name: Check the window starts and converts a file (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          python tests/make_sample.py window.step
+          xvfb-run -a dist/STEP2GLB/STEP2GLB window.step &
+          for i in $(seq 1 90); do [ -s window.glb ] && break; sleep 1; done
+          pkill -f dist/STEP2GLB/STEP2GLB || true
+          test -s window.glb
+
       - name: Zip (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -76,6 +92,13 @@ jobs:
         run: |
           mkdir release
           ditto -c -k --keepParent dist/STEP2GLB.app "release/${{ matrix.asset }}"
+
+      - name: Archive (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir release
+          cp README.md LICENSE packaging/linux/install.sh packaging/linux/step2glb.png dist/STEP2GLB/
+          tar -C dist -czf "release/${{ matrix.asset }}" STEP2GLB
 
       - uses: actions/upload-artifact@v4
         with:
@@ -99,10 +122,10 @@ jobs:
         run: |
           ls -l release
           # The release may already exist (created from the GitHub web page with a new tag):
-          # then only attach the zips to it.
+          # then only attach the archives to it.
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" release/*.zip --repo "$GITHUB_REPOSITORY" \
+            gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" \
               --generate-notes --title "$GITHUB_REF_NAME"
           fi

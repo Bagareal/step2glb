@@ -1,7 +1,7 @@
 # STEP2GLB
 
-Portable **STEP / STP to GLB** converter for **Windows** and **macOS** (Apple Silicon).
-No installation, no Python, no admin rights: download a zip, extract it anywhere, run it.
+Portable **STEP / STP to GLB** converter for **Windows**, **macOS** (Apple Silicon) and **Linux** (x64).
+No installation, no Python, no admin rights: download an archive, extract it anywhere, run it.
 
 It is built on [OpenCASCADE](https://dev.opencascade.org/) (the same CAD kernel used by FreeCAD)
 and is meant for large CAD files that are too heavy to open directly in a browser-based 3D viewer.
@@ -26,6 +26,32 @@ and is meant for large CAD files that are too heavy to open directly in a browse
 3. Drag `.step` / `.stp` files into the window (or onto the app icon), then **Convert to GLB**.
 
 Intel Macs are not supported.
+
+### Linux (x64)
+
+Works on any recent 64-bit distribution (Arch / Omarchy, Ubuntu 22.04 or newer, Fedora, Debian 12...).
+
+1. Download `STEP2GLB-linux-x64.tar.gz` from the [Releases](../../releases) page and extract it
+   where you want to keep it:
+
+   ```
+   tar -xzf ~/Downloads/STEP2GLB-linux-x64.tar.gz -C ~/Applications
+   ```
+
+   (`~/Applications` is an example: any folder works. Create it first with `mkdir -p ~/Applications`.)
+2. Run it: `~/Applications/STEP2GLB/STEP2GLB`. Drag `.step` / `.stp` files into the window, then
+   **Convert to GLB**.
+3. Optional: add it to the app launcher and to *Open with* for STEP files (current user only):
+
+   ```
+   ~/Applications/STEP2GLB/install.sh
+   ```
+
+   Run it again if you move the folder; `install.sh --remove` takes it out of the launcher.
+
+The command line tool is `step2glb-cli` in the same folder. On Wayland desktops (Hyprland /
+Omarchy, GNOME, KDE) the window runs through XWayland, which these desktops have on by default.
+The window class is `STEP2GLB`, for window rules (for example in Hyprland).
 
 ### Using the window
 
@@ -134,15 +160,16 @@ On a company Mac managed by IT, these options may be disabled: ask IT to allow t
 
 - **"OpenCASCADE could not read this file".** The file is not a valid STEP file, or it is
   truncated. STEP AP203, AP214 and AP242 are the usual formats.
-- **Very large files.** Conversion needs a lot of memory. Use a 64-bit Windows, close other
-  applications, and try the **Draft** preset.
+- **Very large files.** Conversion needs a lot of memory. Close other applications and try the
+  **Draft** preset.
 
 ## Build from source
 
-The Windows and macOS builds are produced by GitHub Actions (see `.github/workflows/build.yml`):
-every push builds the app on both systems, runs the tests, converts a generated sample with the
-built command line tool, checks that the main program is the window, and uploads the zips.
-Pushing a tag such as `v1.1.0` also publishes both zips as a release.
+The Windows, macOS and Linux builds are produced by GitHub Actions (see `.github/workflows/build.yml`):
+every push builds the app on the three systems, runs the tests, converts a generated sample with the
+built command line tool, checks that the main program is the window (on Linux it opens it on a
+virtual display and converts a file), and uploads the archives. A release tag such as `v1.3.0`
+(pushed, or created with a new release on GitHub) also attaches the three archives to the release.
 
 To run from source (Python 3.12):
 
@@ -155,6 +182,9 @@ python -m step2glb                 # opens the window
 python -m step2glb model.step -q draft   # options switch to command-line mode
 python -m PyInstaller --noconfirm --clean STEP2GLB.spec   # dist\STEP2GLB (and dist/STEP2GLB.app on macOS)
 ```
+
+On Linux or macOS, activate the environment with `source .venv/bin/activate` instead. On Linux,
+Python needs Tk: on Arch `sudo pacman -S tk`, on Ubuntu/Debian `sudo apt install python3-tk`.
 
 ## License
 
